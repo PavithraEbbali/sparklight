@@ -1,0 +1,1120 @@
+# ai.wing — change log & architectural record
+
+Running log of every significant structural change, feature addition and
+architectural decision made on this project. Newest entries at the top.
+Each entry is written so the change can be traced, reviewed or reverted.
+
+---
+
+## [0.4.4] — Fix: the card photograph was showing 7% of the frame
+
+The 0.4.3 card looked wrong on sight — a blurred slab of wall with the phone
+nowhere in it. The cause was not the crop position, it was the size of the
+box `object-cover` was solving against.
+
+The image was given `absolute inset-0`, so its box was **the whole card**.
+Measured at 337×778, which is portrait, against a 1253×768 landscape source:
+
+```
+cover scale        1.01
+rendered frame     1265 x 776
+horizontal crop    930px discarded  ->  26% of width survives
+visible band       top 208px of 776  ->  27% of height
+frame reaching the screen            ~7%
+```
+
+Seven per cent of the photograph, taken from the out-of-focus background
+wall. The subject was never within a thousand pixels of the viewport.
+
+**Fix: bound the image box to the 208px band rather than the card.** Cover
+then solves 446×208 against 1253×768 — nearly the source aspect — so almost
+nothing is thrown away:
+
+| | before | after (desktop) | after (320px) |
+| --- | --- | --- | --- |
+| Image box | 337×778 (whole card) | 446×208 (band) | 286×208 |
+| Horizontal crop | 930px | **0px** | 0px |
+| Frame visible | **~7%** | **76%** | **84%** |
+
+The gradient moved with it and can go back to percentages, because unlike
+the card the band has a fixed height. The card's own background is now plain
+white — with the photo bounded, the `bg-surface` it carried underneath was
+never visible.
+
+### The general lesson
+
+`object-cover` does not crop toward the visible area — it crops toward the
+box it is given. Handing a landscape photograph a portrait box discards the
+width silently and there is no warning anywhere; it simply renders and looks
+bad. **When a photo only shows in part of an element, size the image box to
+that part, not to the element.**
+
+### One thing left unresolved
+
+`currentSrc` reports the `3840w` candidate for a 446px box, despite a correct
+`sizes` and a DPR of 1 — `640w` is the right answer. This appears to be the
+hidden pane resolving `sizes` before layout, since the image never actually
+loads there, so it could not be confirmed either way. It is bounded in any
+case: the source is 1253px, Next never upscales, so the ceiling is the full
+file at 60.7KB on a lazy below-fold image. Worth a glance in a real browser's
+network panel, not worth engineering around from here.
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean. Copy still begins at 208px on
+solid white. At 320px: band 286×208, 84% of the frame visible,
+`scrollWidth === 320`, 0 overflow, **0 true leaks**, 8 images, 19/19 `tel:`
+links keep `data-call-cta`.
+
+---
+
+## [0.4.3] — Home phone: photograph as the card, card centred
+
+Third image mode added. `imageMode` is now `'side' | 'background' | 'card'`;
+the phone section uses `card`.
+
+### How the photo sits on the card
+
+A plan card carries a lot of small text — name, blurb, price line, four
+features, three fine-print rows, CTA. A tint flat enough to keep all of that
+legible would leave almost nothing of the picture showing, so a uniform
+overlay was never going to work. Measured: copy directly on this photograph
+is **1.70:1**.
+
+So the photo is given the top of the card to itself and the copy sits below
+it, with a gradient handling the join. The picture reads at full strength for
+the first ~140px, fades, and is solid white by 200px. The content begins at
+208px, on solid ground: **12.16:1**.
+
+The card is centred in the section, and the heading block above it is centred
+too — a lone centred card under a left-aligned heading reads as a mistake
+rather than a decision.
+
+### Two bugs found by measuring rather than looking
+
+**1. The gradient stops had to be pixels, not percentages.** A percentage
+gradient is relative to card height, so its opaque point drifts with the
+amount of copy — on a taller card the 50% `via` stop lands *below* where the
+text starts, putting the first lines on a半-transparent band. Fixed stops at
+138px / 182px / 200px are independent of card height.
+
+**2. `sm:p-7` silently beat `pt-52`.** The first implementation appended
+`pt-52` to the existing `p-6 sm:p-7`. Measured result: `padding-top: 28px`,
+with the heading sitting at 29px — directly on the photograph — at every
+width from 640px up. `sm:p-7` lives inside a media query, so it wins over an
+unprefixed `pt-52` regardless of class order. The photo variant now composes
+its own padding (`px-6 pb-6 pt-52 sm:px-7 sm:pb-7`), leaving padding-top
+uncontested. Re-measured: 208px, heading at 209px.
+
+This is the kind of thing that looks fine in a screenshot at one width and is
+broken at another. Worth remembering: **appending a `pt-*` to a `p-*` that
+has a responsive variant does not do what it looks like it does.**
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean. Phone section holds exactly one
+image and it is the card's own background; no side frame. At 320px: card
+288px wide and centred, `padding-top` 208px, heading at 209px,
+`scrollWidth === 320`, 0 overflow, **0 true leaks**, 8 images, 19/19 `tel:`
+links keep `data-call-cta`, body CTAs still exactly `{"Call to order",
+"Call for pricing"}`.
+
+> Repeat offence: the shell mangled another `node -e` edit containing nested
+> template literals, silently dropping the grid-centring class. Caught by
+> checking the reported flags, then fixed with the editor. A damage grep for
+> `key={}` / `className={}` / `${}` now runs after any scripted TSX edit. The
+> lesson from 0.4.2 was written down and not followed — scripted edits to TSX
+> with template literals are simply not worth it.
+
+---
+
+## [0.4.2] — Headline highlight
+
+The hero headline is the largest element on the page and was carrying no
+brand at all — plain ink, no accent. It now gets a **gold sweep behind the
+key phrase**, which is the accent language Sparklight already uses on its own
+site (the yellow marks around their hero).
+
+### Why a sweep behind the words rather than coloured type
+
+Gradient or coloured headline text was the obvious alternative and is the
+wrong tool here. The gradient would have to run purple → gold to read as
+Sparklight, and gold type on white is about **1.6:1** — the second half of
+every highlighted word would be effectively invisible. A sweep painted
+*behind* the words leaves the type at `--color-ink` and its contrast
+untouched.
+
+Measured on the live page: ink on `gold-300` is **9.01:1** against a 3.0
+requirement for large text.
+
+### Implementation
+
+`TextReveal` gained an optional `highlight` prop taking a phrase, matched on
+word boundaries against `text`. A phrase that does not match renders no
+highlight rather than throwing or mangling the headline. The phrase lives in
+`HERO.h1Highlight` in `lib/content.ts`, so which words are marked is data,
+not markup.
+
+The word markup needed restructuring. Each word was previously a single
+`overflow-hidden` mask, and an absolutely positioned sweep inside that mask
+would have been clipped away by it. Each word is now a `relative` wrapper
+holding the sweep and then the mask, so:
+
+- the sweep is `absolute` and an **earlier** sibling
+- the mask is `relative`, therefore positioned, therefore painted **above**
+
+Both confirmed in the DOM rather than assumed. The sweep animates
+`scaleX 0 → 1` from `originX: 0`, timed to land just after its own word has
+finished rising, and is frozen under `prefers-reduced-motion` — which also
+required giving the reduced-motion branch the real word markup, since it
+previously short-circuited to a bare string.
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean. One sweep, on the right phrase.
+At 320px: headline wraps to 4 lines at 288px wide, fits the viewport, the
+sweep stays inside the headline box, `scrollWidth === 320`, 0 overflow,
+**0 true leaks**, 19/19 `tel:` links keep `data-call-cta`.
+
+> Note: two passes of this edit were mangled by the shell — `node -e` with
+> nested template literals ate the backticks in `key={\`${word}-${i}\`}` and
+> two doc comments. Caught by grepping for the damage rather than by trusting
+> the write. Structural edits to TSX containing template literals should use
+> the editor, not a shell heredoc.
+
+---
+
+## [0.4.1] — Offer moved onto the photograph; ambient light raised
+
+### The gold bar is off the top
+
+It read as a second navigation strip, and it put the page's strongest
+commercial message in its weakest position — a band people scroll past on
+the way to the headline. The offer now sits **on the photograph**, anchored
+to the foot of the frame and hanging slightly below it.
+
+That does two jobs at once: the offer gets the attention the picture
+attracts, and the picture gets the weight the offer carries. They reinforce
+each other instead of competing for the top of the page.
+
+The speed chip that used to sit on the photo's bottom-left is gone — the
+offer card already states the plan and its speed, so the chip was repeating
+itself two inches away. The free-install roundel stays on the top-right
+corner.
+
+### Highlighting the image
+
+Two additions, neither of them laid over the picture:
+
+- a brand-light bloom behind the panel (`spark-400 → spark-200 → gold-300`),
+  which drifts on the existing `aurora-b` cycle
+- a 2px gradient hairline around the frame, drawn as a padded wrapper
+  because a `border` cannot carry a gradient
+
+The photograph itself is still completely untouched.
+
+### Ambient light raised
+
+A fourth counter-drifting wash added, peak opacities raised, blobs enlarged,
+and the drift amplitude on `aurora-a` and `aurora-b` roughly doubled.
+
+| | before | now |
+| --- | --- | --- |
+| subtle | 0.13 / 0.12 / 0.09 | 0.16 / 0.17 / 0.13 / 0.11 |
+| bold | 0.26 / 0.24 / 0.18 | 0.34 / 0.32 / 0.26 / 0.20 |
+
+**Opacity here is not a free dial**, and the ceiling is set by the smallest
+lightest type on the page. At full strength directly over a wash centre,
+`--color-mute` at 13px would fall to about 3.4:1.
+
+It does not, because every wash centre sits **outside** its section box — the
+blobs are anchored at negative insets, so only the falloff reaches the
+content. That was checked rather than assumed: the four gradients were
+evaluated analytically at five points on every text element in every
+section, compositing each wash over white by its own distance falloff.
+
+| Section | Worst element | Contrast | Needs | Margin |
+| --- | --- | --- | --- | --- |
+| hero | 13px CTA note | 5.83 | 4.5 | +1.33 |
+| how-it-works | 16px intro | 6.94 | 4.5 | +2.44 |
+| plans-bundle | 16px intro | 7.09 | 4.5 | +2.59 |
+| *(all 10 sections)* | — | — | — | **all pass** |
+
+Heaviest tint reaching any text: `rgb(247,241,247)`. Raising the washes
+further means darkening `--color-mute` first.
+
+### One thing that looked like a bug and was not
+
+At 320px the photo measured `left: 48, right: 332` against a 320px viewport,
+apparently 12px past the edge, while `scrollWidth` stayed at 320 and the leak
+scan stayed at zero.
+
+Both are true. The wrapper was sitting at `translate(30px, 0)`, `opacity: 0`,
+`blur(8px)` — its **un-run entrance state**. Reveals never fire in the hidden
+pane, so `initial` persists. At rest the photo sits at 16–304, inside the
+gutter. Worth remembering when reading any geometry measured in this pane:
+an element inside a `Reveal` is offset by its `distance` until the animation
+runs.
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean; `/` still static. At 320px:
+`scrollWidth === 320`, 0 overflow, **0 true leaks**, the offer card does not
+collide with the trust chips, 19/19 `tel:` links keep `data-call-cta`, body
+CTAs still exactly `{"Call to order", "Call for pricing"}`.
+
+---
+
+## [0.4.0] — Hero rebuilt as a split; mobile wash made a gradient
+
+### The hero was broken, and my verification missed it
+
+Seen at ~1840px the headline and subline were running straight across the
+dark kitchen doorway. The 0.3.1 contrast table said the hero passed, and it
+was not lying — it was **measured at a single viewport width**.
+
+`object-cover` re-crops at every width. At 1024px the hero is tall relative
+to the frame, the image scales ~1.9×, and `object-left` lands the headline on
+the pale wall. At 1840px far less vertical crop is needed, the frame sits
+much wider, and the doorway slides under the copy. Same CSS, same photo,
+completely different result.
+
+**The lesson is the finding.** Contrast that depends on the browser window
+being a particular width is not contrast, and a single-width check cannot
+detect that. Any future full-bleed text-on-image needs measuring across a
+range, or the layout needs changing so the question cannot arise.
+
+### The fix: the text no longer sits on the photograph at all
+
+The hero is now a split — copy and ordering controls on the left, the
+photograph in its own rounded panel on the right. Copy is always on white,
+so legibility is fixed at every width by construction rather than by tuning.
+As a bonus this is what finally delivers the actual request from 0.3.1: the
+picture can be shown **completely untouched**, because nothing needs to be
+washed out to protect text sitting on top of it.
+
+Verified at 1440px: `headlineOverPhoto: false`, `sublineOverPhoto: false`.
+Geometric, not a colour sample — the rectangles do not intersect, so there is
+nothing left to measure.
+
+### The gauge card is gone
+
+`components/HeroVisual.tsx` deleted. Two competing visuals in one hero is
+what made it feel cluttered; the card was being clipped at the right edge and
+its badge collided with the window frame behind. Its three facts — eero mesh,
+unlimited data, no contract — duplicated the metric strip below word for
+word, so nothing was lost. What it did contribute is kept as two small
+overlays on the photo: the free-install roundel on the top-right corner and a
+speed chip on the bottom-left, the latter reading `formatSpeed(lead.speedDown)`
+so it still tracks `lib/content.ts`.
+
+Hero height at 1440px: **1047px, down from roughly two full screens.**
+
+The hero photo also gained real alt text; it is content in its own panel now,
+not a decorative backdrop, so an empty alt was no longer correct.
+
+### Mobile section: flat tint replaced with a gradient
+
+Asked to reduce the wash. Dropping the flat tint from 72% to 58% put the
+intro at **4.03:1** and the eyebrow at **3.33:1** — both under the floor. At
+that alpha the darkest blocks in the frame are near-black, so no text colour
+reaches 4.5; the flat tint had no workable setting.
+
+A gradient solves it, because the text does not occupy the whole section.
+Phone runs top to bottom, `white/90 → white/55 → white/20`; desktop runs
+left to right, `white/95 → white/70 → white/5`.
+
+Measured at 390px, using the real gradient alpha across each element's own
+vertical span and the darkest 10×10 block in that band:
+
+| | flat 72% (before) | flat 58% (tried) | gradient (now) |
+| --- | --- | --- | --- |
+| Eyebrow | 4.08 | 3.33 ✗ | **7.18** ✓ |
+| Heading | 6.13 | 4.03 | **8.04** ✓ |
+| Intro | 3.90 | 4.03 ✗ | **5.99** ✓ |
+| Wash over the card area | 0.72 | 0.58 | **0.38** |
+
+So the photograph is considerably **more** visible than at either flat
+setting — 38% wash across most of the section instead of 72% everywhere —
+and every text element reads better at the same time.
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean; `/` still static. At 320px:
+`scrollWidth === 320`, 0 overflow, **0 true leaks**, headline does not
+intersect the photo, 8 images, 19/19 `tel:` links keep `data-call-cta`, body
+CTAs still exactly `{"Call to order", "Call for pricing"}`.
+
+---
+
+## [0.3.2] — Home phone photograph
+
+The ninth photograph supplied and wired in, closing the gap left open in
+0.3.1. Same pipeline as the other eight: the Gemini sparkle watermark sat at
+the usual position, so the standard 155px right trim removed it and left a
+16:10 frame. **1.93 MB PNG → 54 KB WebP.**
+
+Alt text was written against the delivered frame rather than the prompt, so
+it names what is actually there: the keys, the stack of mail and the daylight
+from the front door.
+
+Total image payload across all nine: **808 KB**.
+
+### Side alternation reworked
+
+Adding this photo exposed a flaw in how the image side was chosen. It keyed
+off `index`, the section's position among **all** sections — including the
+two that carry no photograph. With the phone section illustrated, the run
+came out `fiber R · tv L · mobile bg · phone L · hardware L · how-it-works R`
+— two consecutive lefts.
+
+The side is now derived from position among the sections that actually carry
+a **side** photo, ignoring unillustrated ones and the full-bleed mobile
+section:
+
+```ts
+const sideIndex = ACTIVE_SECTIONS
+  .filter((s) => s.image && s.imageMode !== 'background')
+  .findIndex((s) => s.line === meta.line);
+const imageOnLeft = sideIndex % 2 === 1;
+```
+
+Verified at 1165px: `fiber:right  tv:left  mobile:—  phone:right
+hardware:left  how-it-works:right`, no image overlapping a heading, no
+overflow. This now stays correct on its own if a section gains or loses a
+photograph.
+
+Note the earlier check at a 1009px viewport reported every photo as "left".
+That was the measurement, not the layout — 1009px is below the `lg`
+breakpoint where the header grid collapses to one column, so image and
+heading share a left edge by design. Side assertions are only meaningful at
+≥1024px.
+
+---
+
+## [0.3.1] — Hero photo unscrimmed, mobile section full-bleed
+
+### Hero: photograph at full strength
+
+All three white scrims removed, and `Aurora` no longer renders in the hero —
+the photograph is the background now. No overlay, no veil, no blur.
+
+Removing the wash exposed a real problem that the wash had been hiding.
+**The crop anchor, not the overlay, was doing the work.** The hero is tall
+and the photograph is wide, so `object-cover` discards a large slice: at a
+1024px viewport the image scales 1.9× and roughly half the frame is cropped.
+Anchored `object-right`, the pale left wall the picture was composed around
+was cropped away entirely and the headline landed on the **dark kitchen
+doorway**:
+
+| | `object-right` | `object-left` |
+| --- | --- | --- |
+| Headline, darkest patch | **1.71** ✗ | **4.45** ✓ |
+
+Switching to `object-left` puts the headline back on the empty wall.
+
+The body copy still fell short at 3.49:1, so the three text elements sitting
+directly on the photo were darkened rather than re-introducing a scrim —
+which keeps the picture fully visible, the point of the change:
+
+| Element | Colour | Darkest bg under it | Contrast | Needs |
+| --- | --- | --- | --- | --- |
+| Headline | `#2E3644` | `rgb(160,158,127)` | **4.45** | 3.0 |
+| Subline | `#4C5458` → `#2E3644` | `rgb(175,175,163)` | **5.49** | 4.5 |
+| ZIP label | `#656565` → `#2E3644` | `rgb(186,187,182)` | **6.29** | 4.5 |
+| CTA note | `#656565` → `#2E3644` | `rgb(196,196,194)` | **6.96** | 4.5 |
+
+All measured against the darkest pixel inside each element's own rectangle,
+mapped through the live `object-cover` transform — not against an average.
+
+### Mobile section: photo as the full section background
+
+`ServiceSectionMeta` gained `imageMode: 'side' | 'background'`. The mobile
+section is the first to use `background`: the photo covers the section, and
+the side frame is not rendered.
+
+Some wash is unavoidable here — unlike the hero there is no empty corner to
+put the text on, and the frame is a mid-tone street scene. It is kept as
+light as the numbers allow and confined to the reading column:
+
+- **≥1024px** — `white → white/88 → white/20` left to right, so the right of
+  the frame is essentially untouched
+- **<1024px** — a flat `white/72`, because the text spans the full width
+
+At 72% on a phone the intro measured 3.90:1, under the floor. Rather than
+thicken the wash, the eyebrow and intro are darkened in `background` mode
+only (`text-spark-600 → 700`, `text-body → text-ink`):
+
+| Element | Before | After | Needs |
+| --- | --- | --- | --- |
+| Eyebrow (phone) | 4.08 ✗ | **5.06** ✓ | 4.5 |
+| Intro (phone) | 3.90 ✗ | **5.88** ✓ | 4.5 |
+| Heading (phone) | 6.13 ✓ | 6.13 ✓ | 3.0 |
+| Heading / intro (desktop) | 9.26 / 5.89 ✓ | unchanged | — |
+
+Plan cards are opaque white, so they were never at risk.
+
+### Home phone section — delivered in 0.3.2
+
+Held open in this revision for want of a photograph. Closed out below.
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean; `/` still static. At 320px:
+`scrollWidth === 320`, 0 overflow, **0 true leaks**, hero scrim count **0**,
+mobile background covers its section, 19/19 `tel:` links keep
+`data-call-cta`, body CTAs still exactly `{"Call to order", "Call for
+pricing"}`.
+
+---
+
+## [0.3.0] — Photography
+
+Eight client-supplied photographs added. Sources were 3–5 MB PNGs, 1408×768,
+**28.7 MB** in total.
+
+### Processing
+
+Each source carried Gemini's sparkle watermark roughly 120–135px in from the
+right edge (located by scanning the bottom-right quadrant, not by guessing).
+Trimming **155px off the right** removes it and lands every frame at ~16:10,
+which is the ratio the layout wanted anyway.
+
+All were then re-encoded to WebP q82. The OG card is the exception: it is a
+JPEG at exactly 1200×630, because some social scrapers still reject WebP.
+
+**28.7 MB → 0.73 MB**, a 97% reduction, before `next/image` does its own
+per-breakpoint resizing on top. Measured in the browser: a 480px-wide slot
+receives a 480×294 file, not the full-width source.
+
+### Placement
+
+| Section | Image | Side |
+| --- | --- | --- |
+| Hero | `hero-home` | full-bleed background |
+| Fiber | `fiber-build` | right |
+| TV | `tv-livingroom` | left |
+| Mobile | `mobile-on-the-go` | right |
+| Hardware | `equipment-modem-eero` | left |
+| How it works | `install-technician` | right |
+| Why order here | `family-connected` | inside the closing CTA panel |
+| — | `og-share` | `og:image` + `twitter:card` |
+
+Sides alternate R/L/R/L/R down the page so consecutive illustrated sections
+do not read as a repeating template. `components/SectionMedia.tsx` holds the
+shared 16:10 frame, the lazy loading and the `sizes` hint.
+
+Paths and alt text live in `IMAGES` in `lib/content.ts`, alongside everything
+else — no image path is hard-coded in a layout file.
+
+### Hero contrast, measured
+
+The background photo sits under three stacked white scrims. Rather than
+assume the text stayed legible, the composite was computed: the photo was
+drawn to a canvas, the **darkest 16×16 block in the entire image** was
+found, the scrim alphas were composited over it (using a pessimistic 0.80
+for the horizontal wash instead of its actual ~1.0), and the result checked
+against the type colours.
+
+| Text | Ratio | WCAG AA | Result |
+| --- | --- | --- | --- |
+| Headline `#2E3644` | **10.40** | 3.0 (large) | pass |
+| Body `#4C5458` | **6.61** | 4.5 | pass |
+| Small print `#656565` | **4.99** | 4.5 | pass |
+
+That is worst-case; the real ground under the headline is close to pure
+white.
+
+### Other changes
+
+- `themeColor` was still `#27455C`, left over from the pre-purple palette.
+  Now `#8D3B90`.
+- `twitter:card` added as `summary_large_image`.
+- The hero photo is `priority`; everything else is lazy.
+- `SectionWipe` split into an observed outer element and an animated inner
+  one. Not strictly required, but it keeps the observer off the animated
+  node and lets content wipe in over its own background.
+
+### A correction to 0.2.x
+
+Earlier entries blamed blank screenshots and unrevealed sections on "the
+pane's capture pipeline". That was half right and I stated it too
+confidently. The actual cause was found here:
+
+```
+documentHidden: true      visibilityState: "hidden"
+requestAnimationFrame:    fires 0 times
+IntersectionObserver:     delivers 0 entries — even for a synthetic
+                          position:fixed div, even for document.body
+```
+
+When the host window is not displayed, Chrome throttles the page completely.
+Nothing paints, `rAF` never runs, and IntersectionObserver never delivers.
+So every scroll-triggered reveal legitimately stays in its `initial` state
+and every lazy image legitimately never loads — in that pane. It is an
+observation artefact, not a site defect, but the sections really were
+unrevealed rather than merely uncaptured.
+
+Consequence for this log: **no scroll-triggered behaviour on this site has
+been observed running.** Section wipes, staggered grids, text reveals, lazy
+image loading and the hero entrance cascade are all verified structurally —
+correct markup, correct computed styles, assets returning HTTP 200 with real
+bytes — but not watched. They need one pass in a normal browser window.
+
+---
+
+## [0.2.3] — Hero visual rebuilt: structure over scatter
+
+Seen at full size the 0.2.2 visual did not hold up. Specific faults:
+
+- the three gold marks (`×`, `+`, arc) sat at arbitrary coordinates with no
+  relationship to anything and read as artefacts, not accents
+- the fact chips were absolutely positioned at hand-picked percentages, so
+  they hung off the left and bottom edges and collided with the dial ring
+- the arc gradient ran purple → gold, and the midtones came out **muddy tan**
+- a full-circle ring left a large dead void around the readout
+- the badge was rotated with rotated text, half off the corner
+
+### The fix: one column, no absolutes
+
+The card is now a **network status card** laid out as a single flex column —
+header row, gauge, stat footer. Nothing is absolutely positioned inside it,
+so nothing can overlap or bleed past an edge at any width. The decorative
+marks and floating chips are gone; their content moved into the stat footer
+where it is aligned and legible.
+
+**Gauge.** Replaced the full circle with a 270° arc path opening at the
+bottom, which has an honest start and end and no dead void. Geometry derived
+rather than eyeballed, then verified numerically:
+
+```
+centre (100,100)  r 80  sweep 270°  start θ=225°  end θ=−45°
+path   M 43.43 156.57 A 80 80 0 1 1 156.57 156.57
+fill   0.82  →  tip θ = 225 − 0.82×270 = 3.6°  →  (179.84, 94.98)
+```
+
+The tip marker is placed at that computed point, so it lands **on** the end
+of the arc rather than near it.
+
+**Gradient** now runs `#8d3b90 → #c98fcd`, purple to light purple only. Gold
+appears exactly twice: the tip marker and the badge. Routing the arc through
+gold was what produced the tan.
+
+**Badge** is anchored to overlap the card's top-right corner deliberately,
+with a 5px white ring and **horizontal text**. No rotation.
+
+**Motion** is unchanged in principle — entrance settles, depth from pointer
+response — but with the scattered layers gone, the parallax became a single
+restrained card tilt (±4.5° / ±3.5°) with the badge riding forward.
+
+### Two fixes found by measuring
+
+1. `"Whole-home Wi-Fi"` wrapped to two lines, pushing its column out of step
+   with the other two. Labels cut to one word each: Wi-Fi / Data / Contract.
+2. `"eero TrueMesh"` then wrapped at 320px (36px tall against 18px for the
+   others). Changed to `"eero mesh"` — Sparklight's own wording for it, and
+   short enough to hold one line. Verified: all three values 18px.
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean; `/` still static. At 320px:
+`scrollWidth === 320`, 0 overflow, **0 true leaks**, card 288px inside the
+gutter, badge right edge at 312px within the viewport. At 1180px the card
+sits inside its grid column with no overflow.
+
+---
+
+## [0.2.2] — Offer card contained, hero motion rebuilt
+
+### The offer strip was reading as a second navbar
+
+Making it full-bleed in 0.2.1 was the wrong call: edge-to-edge with a flat
+top and bottom, sitting directly under the header, it looked like chrome
+rather than a promotion. It is now a **contained, rounded card** —
+`rounded-[1.25rem]`, inside the page gutter, with air above and below, a
+soft gold glow and an inset white hairline. It reads as an offer.
+
+### Hero motion: from fidgeting to choreographed
+
+The previous pass had three separate infinite loops running in the hero —
+chips bobbing on `float-soft`, the badge rocking on `tilt-badge`, and rings
+on `wifi-pulse`. Continuous motion on every element reads as restlessness,
+not craft. The principle applied instead:
+
+> **Animate in once, then rest. Depth comes from response, not repetition.**
+
+**Removed:** `float-soft`, `float-soft-lag`, `tilt-badge`, `wifi-pulse`.
+
+**Entrance is now a single choreographed cascade.** The timeline lives in one
+`T` constant at the top of `Hero.tsx` so the rhythm can be read and tuned in
+one place rather than hunting delays through the markup:
+
+| Beat | s | What |
+| --- | --- | --- |
+| offer | 0.00 | Offer card resolves out of blur |
+| eyebrow | 0.14 | Retailer chip |
+| headline | 0.22 | Per-word mask reveal |
+| subline | 0.46 | Blur-up |
+| zip | 0.58 | ZIP checker |
+| cta | 0.68 | Call button |
+| chips | 0.78 | Trust chips |
+| metrics | 0.90 | Metric strip |
+
+Inside the visual, running alongside: the panel settles (0.10), the dial arc
+**draws itself** via `pathLength` 0 → 0.76 (0.42), the readout resolves out
+of a 12px blur (0.78), the badge springs in (1.02), and the fact chips
+stagger (1.16+). `Reveal` gained a `blur` prop so the cascade resolves out of
+softness rather than plainly sliding.
+
+**Depth now comes from pointer parallax.** `HeroVisual` became a client
+component that tracks the cursor across the panel and drives three spring
+layers at different rates — dial ~8px, accents ~18px, badge and chips ~27px.
+Verified live: dispatching a `pointermove` moved the layers to
+`translate(6.3, 4.1)` and `translate(14.2, 9.0)` respectively. Mouse pointers
+only; touch and `prefers-reduced-motion` get the static composition.
+
+**One loop survives in the hero:** three signal rings on a 5.2s stagger at
+0.45 peak opacity, which is the one place repetition means something (a
+signal). Page-wide infinite animation inventory is now exactly:
+`aurora-a/b/c` (ambient section light), `offer-sheen`, `signal-pulse` ×3,
+`marquee-track`. Nothing else repeats.
+
+### Verification
+
+`tsc --noEmit`, `eslint`, `next build` clean; `/` still static. At 320px:
+`scrollWidth === 320`, 0 overflow, **0 true leaks**. 19/19 `tel:` links keep
+`data-call-cta`. 0 canvases. Settled hero state confirmed in the DOM
+(`filter: blur(0px)`, opacity 1, dial `stroke-dasharray: 0.76px 1px`).
+
+---
+
+## [0.2.1] — Hero given a visual anchor
+
+The 0.2.0 hero was rejected on sight. The diagnosis: with the canvas removed
+it had **no focal point**, the right 40% of the viewport was empty, and what
+remained read as a stack of disconnected boxes — ribbon, chip, headline,
+paragraph, white box, chips, table.
+
+### What changed
+
+**`components/HeroVisual.tsx` (new).** A composed illustration rather than a
+second pricing card, so the right column carries real weight without
+reverting to the template the client already rejected:
+
+- a speed dial — gradient arc from brand purple through to promo gold —
+  reading the lead plan's speed straight out of `lib/content.ts`
+- concentric Wi-Fi pulses radiating behind it on staggered delays
+- the purple **FREE INSTALL** roundel, echoing the badge on sparklight.com,
+  on a slow tilt
+- three floating white fact chips (eero Wi-Fi, unlimited data, no contract)
+  on offset float cycles
+- small gold spark marks, matching the accent doodles on the live site
+
+All SVG and CSS. No image assets, no JavaScript, no canvas. Every animation
+is a keyframe that stops under `prefers-reduced-motion`.
+
+**Offer strip is now full-bleed**, spanning the viewport like the promotional
+banner sparklight.com runs above its own hero, instead of floating as an
+inset rounded rectangle.
+
+**Hero body is a balanced two-column grid** — copy and ordering controls
+left, visual right — with the metric strip closing the section underneath.
+
+### Fixes found while verifying
+
+1. **Offer strip ran to four stacked rows at 320px.** Tightened padding,
+   type scale and gaps; the separator dot is now `sm:` only so it no longer
+   dangles at the end of a wrapped line. Strip height at 320px: 131px.
+2. **`"Sparklight 1 Gig Internet1 Gig download"`** — the plan name ran into
+   the speed. Now a flex row with an explicit gap and separator.
+3. **Header overflowed 20px at 320px — a regression I introduced.** Adding
+   `whitespace-nowrap` to the "AUTHORIZED RETAILER" eyebrow to stop it
+   wrapping made the wordmark wide enough to push the phone button past the
+   viewport (`scrollWidth` 340 vs `clientWidth` 320). The eyebrow is now
+   hidden below 380px, where the disclosure bar immediately above already
+   carries the same statement. Re-verified: 320/320/320, 0 overflow.
+4. Badge text was cramped at three lines; cut to two with a white ring.
+   Gold spark marks were colliding with the floating chips; repositioned
+   into the gaps and reduced in weight.
+
+### Verification
+
+`tsc --noEmit`, `eslint` and `next build` all clean; `/` still static.
+At 320px and 390px: `scrollWidth === clientWidth`, **0 true leaks**, badge
+contained inside its panel. 19/19 `tel:` links keep `data-call-cta`. Body CTA
+labels remain exactly `{"Call to order", "Call for pricing"}`. 0 canvases.
+
+---
+
+## [0.2.0] — Rebrand to the real Sparklight palette, hero rebuild, motion cull
+
+Driven by a screenshot of the live sparklight.com homepage supplied by the
+client, which settled the palette question raised in 0.1.0.
+
+### Palette: purple and gold on white, replacing blue-on-navy
+
+The deviation flagged in 0.1.0 is resolved in favour of the real brand.
+Sparklight is **purple and gold**, and its site has no dark theme. The
+screenshot confirms the purple utility bar, the purple primary button, and
+the gold promotional banner, all on white.
+
+| Token | Hex | Source |
+| --- | --- | --- |
+| `--color-spark-500` | `#8D3B90` | Logo spark glyph, top utility bar, primary button |
+| `--color-gold-400` | `#F2C94C` | Offer banner, "FREE INSTALL" badge, accent marks |
+| `--color-ink` | `#2E3644` | Headlines |
+| `--color-body` | `#4C5458` | Body copy, official logo wordmark |
+| `--color-surface` | `#F8F6F9` | Lavender-tinted panel |
+
+`navy-*` and the old `spark-*` blue ramp were deleted outright, not aliased,
+so nothing can quietly keep rendering blue. All call sites were migrated and
+the tree greps clean of the old tokens.
+
+**Verified: zero dark surfaces.** A DOM sweep computing relative luminance of
+every element's background found no surface below a luminance of 60. Body is
+`#FFFFFF`; the footer moved from `#070E14` to the light lavender surface and
+closes with a purple rule mirroring the top disclosure bar.
+
+### Brand name
+
+`RETAILER.name` is now `Sparklight` (was `Clearline Connect`); zero
+occurrences of the old name remain.
+
+> **One thing I changed rather than took literally.** `LEGAL.disclosure` was
+> a template over `RETAILER.name`, which would now have rendered
+> *"Sparklight is an independent authorized retailer of Sparklight."* It is
+> rewritten in the third person: *"This site is operated by an independent
+> authorized retailer of Sparklight and is not the Sparklight corporate
+> website."* The footer copyright line likewise reads "© Independent
+> Authorized Retailer of Sparklight" rather than asserting copyright as
+> Sparklight. The persistent top-bar disclosure is unchanged.
+
+### Hero rebuilt
+
+The old "copy left, pricing card right" split was the generic template the
+client called out. It now stacks:
+
+1. a highlighted gold offer ribbon carrying the lead promotion, its price
+   lockup and a CTA, with a slow sheen sweep
+2. the headline at full column width
+3. one elevated action bar holding the ZIP checker and the call button
+4. trust chips
+5. a three-part metric strip
+
+Headline changed from *"Internet that connects your whole home."* to
+**"Fiber-powered internet for every room in your home."**
+
+### Motion: removed, kept, added
+
+**Removed** — `FiberField.tsx` (the hero black-hole canvas) and
+`NetworkAssembly.tsx` (the scroll-scrubbed network diagram) are deleted, not
+just unmounted. The page now renders **zero** `<canvas>` elements and runs no
+`requestAnimationFrame` loop of its own.
+
+**Replaced** — `TiltCard` is no longer used by plan cards. Hover is now a 4px
+lift with a border tint and a slightly deeper shadow, on `transform`,
+`box-shadow` and `border-color` only. Applied consistently to plan cards,
+step cards and benefit cards.
+
+**Added** — `components/motion/Aurora.tsx`: soft purple/gold radial washes
+drifting on three long offset cycles, behind the hero and every section.
+Pure CSS keyframes, no JS, no bundle cost.
+
+> Aurora deliberately carries **no blur filter**. The first cut used
+> `blur-3xl`, which put ~34 large offscreen compositing surfaces on the page.
+> A radial gradient fading to `transparent` is already soft, so the blur was
+> visually redundant and expensive. Removing it changed nothing visible.
+
+Kept: Lenis, section clip-path wipes, text reveals, staggered grids, magnetic
+buttons, the marquee.
+
+### Card CTA placement
+
+The call button is now the **last element** in every plan card, after the
+fine print, with `mt-auto` pushing it to the bottom edge so buttons line up
+across a row regardless of copy length. Verified across all 12 cards: CTA is
+the final child in each, sitting a consistent 25–29px (the card padding) from
+the bottom.
+
+### Copy made professional
+
+| Was | Now |
+| --- | --- |
+| Internet that connects your whole home. | Fiber-powered internet for every room in your home. |
+| What it actually costs to get connected | Equipment, installation and monthly fees |
+| From ZIP code to a working network | Ordering in four steps |
+| "Four steps, one phone call. The diagram fills in as you scroll — the fiber drop reaches the gateway…" | "From confirming availability at your address to booking the installation, the whole process is handled on a single call with an authorized retailer." |
+| `<title>` "Sparklight Authorized Retailer \| Sparklight" | "Sparklight Authorized Retailer \| Internet, TV, Mobile & Home Phone" |
+
+### Verification
+
+build / `tsc --noEmit` / `eslint` all clean; `/` still prerendered static.
+At 320px: `scrollWidth === 320`, not horizontally scrollable, **0 true
+leaks**. 19/19 `tel:` links carry `data-call-cta`. Body CTA labels remain
+exactly `{"Call to order", "Call for pricing"}`. 0 canvases. 0 dark surfaces.
+0 references to the old brand name.
+
+> **Screenshot limitation.** The Browser pane captures the hero correctly but
+> returns blank or vertically-offset frames for this page after any scroll.
+> Ruled out as page bugs: `getBoundingClientRect` reports the sticky header
+> at `top: 0` and every section at its correct offset with `clip-path:
+> inset(0%)`; `elementFromPoint` returns the expected element at every probe
+> height; and forcing `body { overflow-x: visible }` at runtime changed
+> nothing. It is the pane's capture pipeline. Layout was therefore verified
+> programmatically. A visual pass on the sections below the hero is still
+> worth doing in a normal browser.
+
+---
+
+## [0.1.1] — Two fixes found during verification
+
+**`components/ServiceSection.tsx` — single-plan sections left an empty grid cell.**
+Mobile and Phone each carry one plan, but their section meta requested two
+columns, so each rendered a 438px card beside 438px of dead space. The
+requested column count is now capped at the actual plan count
+(`Math.min(meta.columns, plans.length)`), and the 1-column case constrains
+the grid to `max-w-md`. Measured after the fix: Mobile and Phone render a
+single 448px card with no empty cell; every other section is unchanged.
+This keeps working automatically if a plan is later added or removed from
+`lib/content.ts`.
+
+**`components/motion/FiberField.tsx` — canvas could animate while off screen.**
+The wake-up path used `io.takeRecords().length === 0 && start()`, which was
+wrong: `takeRecords()` only drains *queued* entries and is almost always
+empty, so returning to a visible tab restarted the render loop even when the
+hero canvas had been scrolled well out of view. Intersection state is now
+tracked in an explicit `onScreen` flag, and a single `sync()` starts the loop
+only when the canvas is both on screen **and** in a visible tab. Both the
+observer callback and the `visibilitychange` handler route through it.
+
+> Note on verification: the Browser pane reported `document.hidden === true`
+> throughout this session (the host window was not displayed), which zeroes
+> `requestAnimationFrame` and returns blank screenshots. Structure, geometry,
+> computed styles, overflow and DOM content were therefore verified
+> programmatically rather than by eye. The canvas was confirmed to paint its
+> static frame; live playback of the rAF-driven disc has not been observed on
+> screen and is worth a visual pass.
+
+---
+
+## [0.1.0] — Initial build: Sparklight Authorized Retailer landing site
+
+### Scope
+Single-page, static-rendered marketing site for an independent authorized
+retailer of Sparklight. Strict front-end build: **no backend, no API routes,
+no database.** The ZIP checker validates input format and routes the visitor
+to a phone call; it never claims to have queried a coverage database.
+
+### Stack
+| Layer | Choice | Why |
+| --- | --- | --- |
+| Framework | Next.js 16.3.5 (App Router, Turbopack) | Static export of a single route; zero client JS for the content itself |
+| Language | TypeScript 5 (strict) | The pricing model is the contract; it must be type-enforced |
+| Styling | Tailwind CSS v4 (`@theme` tokens) | Brand palette lives in CSS custom properties, not in class soup |
+| Animation | `motion` (Framer Motion v12 successor) | Transform/opacity-only animation on the compositor |
+| Scrolling | `lenis` | Smooth scroll that still drives native `window.scrollY`, so `useScroll` and anchors keep working |
+
+Route output: `/` is `○ (Static)` — fully prerendered.
+
+---
+
+### Decision 1 — `lib/content.ts` is the single source of truth
+
+Every price, speed, promotional qualifier, equipment fee, feature bullet,
+FAQ answer and legal disclosure on the site is exported from this one file.
+
+**Verified:** `grep` across `app/**/*.tsx` and `components/**/*.tsx` returns
+**zero** hardcoded prices, speeds or monthly fees.
+
+The cascade is implemented through derived helpers at the bottom of the file
+rather than through prop drilling:
+
+| Helper | Drives |
+| --- | --- |
+| `getPlansByLine(line)` | Which cards render in each service section |
+| `ACTIVE_SECTIONS` | Section order **and** omission — a service line with no plans never renders |
+| `LEAD_PLAN` | The hero price anchor, resolved from `HERO.leadPlanId` |
+| `hasPrice(plan)` | Whether a price lockup or a "pricing by address" line shows |
+| `ctaLabel(plan)` | **The only place CTA wording is decided** |
+| `formatSpeed` / `speedSummary` | `1000` → `"1 Gig"`, `200/20` → `"200 Mbps down / 20 Mbps up"` |
+| `LOWEST_PRICE` | The footer "Plans from $X/mo." summary |
+
+**Cascade test performed and passed.** Changing only `price`/`cents` on two
+plans in `lib/content.ts` (1 Gig `40.00 → 35.50`, Lift `29.95 → 24.99`),
+with no TSX touched, correctly updated: the hero price anchor, both plan
+cards, the recomputed footer "Plans from" line (which switched to the new
+lowest price), and the generated SEO meta description. Values were reverted
+after the test.
+
+### Decision 2 — One universal `<PriceLockup plan={plan} />`
+
+`components/PriceLockup.tsx` is the only component that renders a price.
+It draws a flex row: dollar sign, dominant integer, muted cents stacked over
+the billing period. The dominant integer is held inside the required
+**2.5rem – 3.5rem** band at all three sizes (`sm` 2.5rem, `md` 3rem,
+`lg` 3.5rem).
+
+An unpriced plan is not a broken lockup: `hasPrice()` is false, so it renders
+a "Pricing by address" line instead, and `ctaLabel()` independently switches
+that card's button to **"Call for pricing"**. Screen readers get a single
+`sr-only` string (`"$40.00 per month"`) because the split integer/cents
+markup would otherwise be read as `"$4000"`.
+
+### Decision 3 — Service-line audit against sparklight.com
+
+Live audit of sparklight.com, `/internet`, `/fiber`, `/sparklighttv`,
+`/phone`, `/internet-mobile-bundle`, `/internet/wifi-equipment`,
+`/internet/wifi-equipment/eero`, `/internet-gig` and
+`/internet/affordable-internet-plans`.
+
+| Line | Verdict | Basis |
+| --- | --- | --- |
+| Fiber | **KEPT** | `/fiber` exists. "100% Fiber: in select communities Sparklight delivers internet over a fully fiber-optic network." Nearly $1B invested; symmetrical speeds; multi-gig in select markets. No published fiber-specific rate card → both fiber cards resolve to "Call for pricing". |
+| Cable | **KEPT** | "Fiber-Powered Network Plans": 1 Gig, 600 Mbps, 300 Mbps, plus Lift Internet. |
+| Bundles | **KEPT** | TV and Mobile both require Sparklight Internet; Internet + Mobile is actively promoted. |
+| TV | **KEPT** | Standard Sparklight TV Plus and Economy Sparklight TV Plus. |
+| Mobile | **KEPT** | Sparklight Mobile is real: nationwide 5G, up to 6 lines, requires Sparklight Internet. |
+| Phone | **KEPT** | Sparklight Phone residential voice; rates are published per service area via a rate card, so no price → "Call for pricing". |
+
+No service line was omitted, because Sparklight sells all six. Had one not
+existed, `ACTIVE_SECTIONS` would have dropped it automatically — there are no
+empty placeholder sections or "call to ask" filler cards anywhere.
+
+**Pricing actually published by Sparklight, and therefore the only prices
+shown:**
+- 1 Gig Internet — `$40.00/mo.` promotional, 12 months, new customers, Auto Pay + paperless
+- Lift Internet — `$29.95/mo.`, 200/20 Mbps, equipment included, assistance-program verification
+- Economy Sparklight TV Plus — from `$54.00/mo.`
+- Standard Sparklight TV Plus — from `$148.00/mo.`
+
+300 Mbps, 600 Mbps, both fiber tiers, Mobile and Phone carry **no** invented
+price. Sparklight publishes only a `$60–$105/mo.` range for standard internet
+rates, which is carried as a `promoQualifier` rather than being split into
+fake per-tier numbers. Those cards say "Call for pricing".
+
+### Decision 4 — Brand palette (verified hex, with one deviation flagged)
+
+Hexes sampled from live Sparklight assets rather than guessed:
+
+| Token | Hex | Source |
+| --- | --- | --- |
+| `--color-spark-500` | `#3860BE` | Accent blue on sparklight.com (`rgb(56,96,190)`) |
+| `--color-navy-500` | `#27455C` | Navy panel background on sparklight.com |
+| `--color-slate-ink` | `#2E3644` | Inline SVG chrome colour |
+| `--color-slate-body` | `#4C5458` | **Sampled from the official logo wordmark** |
+| `--color-spark-mark` | `#8D3B90` | **Sampled from the spark glyph in the official logo** |
+| white | `#FFFFFF` | — |
+
+> **Flagged deviation.** The brief specified "dominant Sparklight Blue".
+> Pixel-sampling the official logo (`Logo.png`) shows Sparklight's current
+> mark is actually a **slate-grey wordmark `#4C5458` with a purple spark
+> `#8D3B90`** — not blue. Both were kept as real brand colours, and the
+> verified site blue `#3860BE` was made the dominant primary as instructed,
+> with the purple retained as the accent/spark. Every value above is a real
+> Sparklight hex. To make purple dominant instead, swap `--color-spark-500`
+> and `--color-spark-mark` in `app/globals.css`; nothing else needs editing.
+
+Typeface: Sparklight uses **Effra**, a licensed face, with **Inter** declared
+as its own fallback in their stylesheet. Inter is what we load.
+
+### Decision 5 — Animation system, built against a performance budget
+
+Everything animates transform / opacity / clip-path / `pathLength` only.
+No animated layout properties, so nothing triggers reflow.
+
+| Requirement | Implementation |
+| --- | --- |
+| Lenis smooth scroll | `components/motion/SmoothScroll.tsx` — also intercepts `a[href^="#"]` so anchors ease instead of jumping |
+| "Black hole" / fiber-optic background | `components/motion/FiberField.tsx` — canvas accretion disc |
+| Scroll-scrubbed assembly | `components/motion/NetworkAssembly.tsx` — home network builds itself, reverses on scroll up |
+| Scroll-triggered text reveals | `TextReveal` — per-word mask reveal |
+| Parallax depth | `Parallax.tsx` — spring-damped, viewport-relative |
+| SVG path draw | `pathLength` scrubbing in `NetworkAssembly` |
+| Magnetic buttons | `Magnetic.tsx` — spring-tracked, label lags shell for depth |
+| Clip-path wipes | `SectionWipe.tsx` — `inset()` and `polygon()` variants between sections |
+| 3D card tilt | `TiltCard.tsx` — rotateX/rotateY + pointer-tracked specular highlight |
+| Staggered grid entrance | `StaggerGroup` / `StaggerItem` |
+| Infinite marquee | `Marquee.tsx` — pure CSS keyframe, duplicated track translating `-50%` |
+
+Performance safeguards:
+- `FiberField` caps DPR at **1.75**, scales particle count to viewport area
+  (hard cap 260), and **stops its rAF loop entirely** via `IntersectionObserver`
+  when scrolled away and on `visibilitychange`. It costs nothing once the
+  visitor is reading plans.
+- `prefers-reduced-motion` is honoured in **every** primitive: Lenis does not
+  initialise, `FiberField` paints one static frame and exits, the marquee
+  stops, and each wrapper returns a plain element with no motion props.
+- Pointer-driven effects (magnetic, tilt) ignore non-mouse pointers, so they
+  never fire on touch.
+- `motion.create()` is never called during render — `components/motion/motionTag.ts`
+  exports a module-level map that call sites index directly. Calling a factory
+  in a render body would remount the subtree each render and also trips
+  `react-hooks/static-components`.
+
+### Decision 6 — Negative constraints, enforced and verified
+
+Automated DOM audit run against the live page. All clear:
+
+- No support-routing copy ("New orders only…", account/billing/outage routing) — **absent**
+- Hero retains **both** the ZIP checker and a call button — **present**
+- Every CTA outside the header/footer reads exactly `"Call to order"` or `"Call for pricing"` — verified, the set of body CTA labels is exactly those two strings
+- No raw phone number as a body CTA label — verified, zero matches
+- No competitor bashing, no self-deprecating "ordering channel" copy — **absent**
+- No "See Sparklight's official Broadband Facts label →" link — **absent**
+- No "Pricing observed [date]" / "Pricing current as of" / "Last reviewed" strings — **absent** (note: the bestfiberinternet.us footer reference *does* carry a date stamp; it was deliberately not copied)
+- No "Is this the official Sparklight site?" FAQ — **absent**
+- No empty placeholder sections — structurally impossible via `ACTIVE_SECTIONS`
+
+### Decision 7 — Page order
+
+Driven by `ACTIVE_SECTIONS`, not by hand-placed JSX:
+
+1. Top disclosure bar — persistent, no dismiss control (`SiteHeader`)
+2. Sticky header — wordmark, anchor nav, solid call button with placeholder number
+3. Hero — eyebrow, H1, subline, `<PriceLockup>` anchor, ZIP checker **and** call button, trust chips
+4. Trust marquee
+5. Fiber → Cable → Bundles → TV → Mobile → Phone
+6. Honest fine-print grid (`#hardware`)
+7. How it works + Why us (`#how-it-works`, `#why-us`)
+8. FAQ (`#faq`)
+9. Footer
+
+Footer layout, typography and spacing follow bestfiberinternet.us: deep navy
+ground (`#070e14`, their `#001226`), muted `#9FB3C8` body text, brand blurb
+beside three uppercase link columns, a "Talk to a human" block carrying the
+raw number, then a dense required-disclosures slab.
+
+### Decision 8 — Accessibility
+
+- `TextReveal` keeps the full string in one `sr-only` node and marks the
+  per-word spans `aria-hidden`, so the headline is announced once, intact.
+- `PriceLockup` exposes `"$40.00 per month"` rather than the split markup.
+- FAQ accordion uses real buttons with `aria-expanded` / `aria-controls`.
+- Every `section` is `aria-labelledby` a real heading id.
+- `maximumScale: 5` — the page stays pinch-zoomable (WCAG 1.4.4).
+- Single focus-ring definition in `globals.css`; skip link to `#plans`.
+- The decorative canvas is `aria-hidden` + `role="presentation"`.
+
+### Verification performed
+
+| Check | Result |
+| --- | --- |
+| `npm run build` | Passes. `/` prerendered as static |
+| `npx tsc --noEmit` | Clean |
+| `npm run lint` | Clean |
+| Horizontal overflow at 320px | `documentElement.scrollWidth === 320`, `horizontallyScrollable: false`, **0 true leaks** (every out-of-bounds node is inside a clipping ancestor, not merely caught by the body safety net) |
+| `data-call-cta` on every `tel:` link | 19/19 present, 0 missing |
+| Body CTA labels | Exactly `{"Call to order", "Call for pricing"}` |
+| Forbidden-string scan | 0 violations across 11 patterns |
+| Pricing cascade | Passed (see Decision 1) |
+
+### Known placeholders to replace before launch
+
+1. **`PHONE`** in `lib/content.ts` — `(888) 555-0142` is in the reserved
+   fictional `555-01xx` range so nothing real is dialled. Replace `display`
+   and `href` together.
+2. **`RETAILER.name`** — currently `Clearline Connect`. Changing it updates
+   the header, footer, `<title>`, meta description and the legal disclosure,
+   because `LEGAL.disclosure` is a template literal over `RETAILER.name`.
+3. Footer legal hrefs are `#legal-*` anchors pending real policy pages.
+4. Footer support hours are illustrative.

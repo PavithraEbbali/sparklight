@@ -1,26 +1,363 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   SPARKLIGHT DESIGN TOKENS
+   --------------------------------------------------------------------------
+   Palette taken from sparklight.com. Sparklight's brand is purple and gold
+   on white — not blue, and not dark.
+
+     #8D3B90  brand purple. Sampled from the spark glyph in the official
+              logo, and the colour of the site's top utility bar and its
+              primary "Shop now" button.
+     #F2C94C  promo gold. The countdown/offer banner, the "FREE INSTALL"
+              badge type and the accent marks.
+     #2E3644  headline slate, from the site chrome.
+     #4C5458  body slate. Sampled from the official logo wordmark.
+     #FFFFFF  page ground. There is no dark theme anywhere on this site.
+
+   Typeface: Effra is the Sparklight brand face; Inter is their own declared
+   fallback, so Inter is what we load.
+   ========================================================================== */
+
+@theme {
+  /* --- Brand purple (primary) ------------------------------------------ */
+  --color-spark-50: #faf5fb;
+  --color-spark-100: #f3e6f4;
+  --color-spark-200: #e6cce8;
+  --color-spark-300: #d0a3d3;
+  --color-spark-400: #b06fb5;
+  --color-spark-500: #8d3b90; /* official Sparklight purple */
+  --color-spark-600: #7a3280;
+  --color-spark-700: #652a6a;
+  --color-spark-800: #512255;
+  --color-spark-900: #3d1940;
+
+  /* --- Promo gold (offer accent) --------------------------------------- */
+  --color-gold-50: #fdfaee;
+  --color-gold-100: #fdf6e0;
+  --color-gold-200: #fbecc0;
+  --color-gold-300: #f7dc8a;
+  --color-gold-400: #f2c94c; /* offer banner gold */
+  --color-gold-500: #e0b134;
+  --color-gold-700: #8a6a12;
+
+  /* --- Neutral ink ------------------------------------------------------ */
+  --color-ink: #2e3644; /* headlines */
+  --color-body: #4c5458; /* body copy, official wordmark slate */
+  --color-mute: #656565;
+  --color-line: #e6e2e8;
+  --color-surface: #f8f6f9; /* lavender-tinted panel */
+  --color-haze: #f0f0f0;
+
+  --font-sans: var(--font-inter), "Effra", ui-sans-serif, system-ui, sans-serif;
+
+  --ease-brand: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-wipe: cubic-bezier(0.76, 0, 0.24, 1);
+}
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #2e3644;
+  /* Light only. The site has no dark variant and must not be auto-inverted. */
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  /* Lenis drives scrolling; native smooth-scroll would fight it. */
+  scroll-behavior: auto;
+  scroll-padding-top: 7.5rem;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  /* Nothing on this page may scroll sideways, at any width. */
+  overflow-x: clip;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+::selection {
+  background: var(--color-spark-500);
+  color: #ffffff;
+}
+
+:where(a, button, input, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-spark-500);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Lenis
+   -------------------------------------------------------------------------- */
+
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   Layout utilities
+   -------------------------------------------------------------------------- */
+
+/* Shared page gutter. 16px at 320px, opening up on larger screens. */
+.shell {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 640px) {
+  .shell {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .shell {
+    padding-inline: 2.5rem;
+  }
+}
+
+.balance {
+  text-wrap: balance;
+}
+
+.pretty {
+  text-wrap: pretty;
+}
+
+/* --------------------------------------------------------------------------
+   Ambient light animation
+   --------------------------------------------------------------------------
+   Soft brand-coloured light drifting behind light sections. Three blobs on
+   long, offset cycles so the loop never reads as a loop. Transform and
+   opacity only, so it composites on the GPU and costs no layout work.
+   -------------------------------------------------------------------------- */
+
+@keyframes aurora-a {
+  0%,
+  100% {
+    transform: translate3d(-10%, -7%, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(14%, 10%, 0) scale(1.24);
+  }
+  66% {
+    transform: translate3d(-5%, 15%, 0) scale(0.9);
+  }
+}
+
+@keyframes aurora-b {
+  0%,
+  100% {
+    transform: translate3d(9%, 10%, 0) scale(1.12);
+  }
+  40% {
+    transform: translate3d(-14%, -9%, 0) scale(0.88);
+  }
+  70% {
+    transform: translate3d(11%, -13%, 0) scale(1.28);
+  }
+}
+
+@keyframes aurora-c {
+  0%,
+  100% {
+    transform: translate3d(0, 5%, 0) scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate3d(-7%, -6%, 0) scale(1.22);
+    opacity: 1;
+  }
+}
+
+.aurora-a {
+  animation: aurora-a 26s var(--ease-brand) infinite;
+  will-change: transform;
+}
+
+.aurora-b {
+  animation: aurora-b 32s var(--ease-brand) infinite;
+  will-change: transform;
+}
+
+.aurora-c {
+  animation: aurora-c 22s var(--ease-brand) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes aurora-d {
+  0%,
+  100% {
+    transform: translate3d(6%, -8%, 0) scale(0.95);
+    opacity: 0.7;
+  }
+  45% {
+    transform: translate3d(-12%, 10%, 0) scale(1.3);
+    opacity: 1;
+  }
+}
+
+.aurora-d {
+  animation: aurora-d 29s var(--ease-brand) infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-a,
+  .aurora-b,
+  .aurora-c,
+  .aurora-d {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Infinite marquee
+   -------------------------------------------------------------------------- */
+
+@keyframes marquee-track {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.marquee-track {
+  animation: marquee-track var(--marquee-duration, 42s) linear infinite;
+  will-change: transform;
+}
+
+.marquee-host:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Offer band shimmer — a slow highlight sweep across the gold ribbon
+   -------------------------------------------------------------------------- */
+
+@keyframes offer-sheen {
+  0% {
+    transform: translate3d(-120%, 0, 0) skewX(-18deg);
+  }
+  55%,
+  100% {
+    transform: translate3d(320%, 0, 0) skewX(-18deg);
+  }
+}
+
+.offer-sheen {
+  animation: offer-sheen 7s var(--ease-brand) infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offer-sheen {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Hero visual — signal pulse
+   --------------------------------------------------------------------------
+   The only looping animation left in the hero. Slow, low-contrast and
+   staggered across three rings so it reads as a signal rather than a
+   throbbing element. Everything else in the hero animates in once and rests,
+   which is what separates a premium entrance from a fidgeting page.
+   -------------------------------------------------------------------------- */
+
+@keyframes signal-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  18% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.28);
+  }
+}
+
+.signal-pulse {
+  animation: signal-pulse 5.2s cubic-bezier(0.33, 0, 0.2, 1) infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-pulse {
+    animation: none;
+    opacity: 0.22;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Mobile: halve the ambient light
+   --------------------------------------------------------------------------
+   Four washes per section across eleven sections is 44 continuously
+   animating composited layers. That is fine on a desktop GPU and wasteful on
+   a mid-range phone, where it competes with scrolling for the same budget.
+   Below 640px the two supporting washes are dropped, leaving the purple and
+   the gold — the two that actually carry the brand. The effect still reads;
+   the layer count halves.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 639px) {
+  .aurora-c,
+  .aurora-d {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Touch devices: drop hover-only affordances
+   --------------------------------------------------------------------------
+   A device without a hover-capable pointer can get stuck showing a hover
+   state after a tap. Card lifts and shadows are suppressed there so tapping
+   a card does not leave it floating.
+   -------------------------------------------------------------------------- */
+
+@media (hover: none) {
+  .group:hover {
+    transform: none !important;
+  }
 }
