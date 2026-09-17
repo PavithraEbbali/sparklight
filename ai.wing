@@ -6,6 +6,110 @@ Each entry is written so the change can be traced, reviewed or reverted.
 
 ---
 
+## [1.0.0] — Mobile pass, repository, deployment readiness
+
+### The site had no mobile navigation at all
+
+`nav[aria-label="Primary"]` was `hidden lg:block`. Below 1024px — every
+phone, every tablet — the Plans / Hardware / How it works / FAQ links did not
+exist in any form. Nothing pointed at it because the anchors still worked if
+you knew to scroll; it simply could not be navigated.
+
+Added a disclosure menu in the header:
+
+- a 44×44 toggle carrying `aria-expanded` / `aria-controls`
+- a dropdown, not a modal — the rest of the page stays operable, and there is
+  no focus trap to get wrong
+- Escape closes it; so does scrolling, because a panel anchored to the header
+  should not trail the page as the header leaves
+- the four anchors at 48px each, plus the full phone number as a fifth row,
+  which is also where the number goes now that the bar collapses it
+
+Desktop nav and the menu button are mutually exclusive, asserted rather than
+assumed: `exactlyOneNavMechanism` is checked at 768px and 1440px.
+
+### The header could not fit a 320px bar with a menu button added
+
+Wordmark 191px + phone button 146px + a new 44px button overflows a 390px
+screen before padding. Rather than shrink everything, the phone button
+collapses to an icon below 640px with the number moved into the menu, and the
+"Authorized Retailer" eyebrow appears only from 420px. Measured at 320px:
+header content 224px against 320px available.
+
+### Touch targets and type
+
+| | before | after |
+| --- | --- | --- |
+| Targets under 24px (390px viewport) | **18** | **0** |
+| Smallest long-form text | 10px | 11px |
+| Card fine print | 11px | 12px |
+
+The footer links were the bulk of it at 16px tall; they now carry a real row
+height. The only text left under 11px is three short bold uppercase badge
+labels — "Free", "Popular", "Limited-time offer" — where it is conventional
+and legible.
+
+### Animation on phones
+
+Four ambient washes across eleven sections is 44 continuously animating
+composited layers. Fine on a desktop GPU, wasteful on a mid-range phone where
+it competes with scrolling for the same budget. Below 640px the two
+supporting washes are dropped: **42 layers in the DOM, 22 animating**. The
+effect still reads.
+
+Also added a `@media (hover: none)` rule to suppress card lift transforms, so
+a tap does not leave a card stuck in its hover state.
+
+Pointer-driven effects were already gated on `pointerType === 'mouse'`, and
+Lenis already leaves touch scrolling native.
+
+### Verified across widths
+
+| | 320 | 390 | 768 | 1440 |
+| --- | --- | --- | --- | --- |
+| Horizontal overflow | 0 | 0 | 0 | 0 |
+| True leaks | 0 | 0 | 0 | 0 |
+| Targets under 24px | 0 | 0 | 0 | — |
+| Nav mechanism | menu | menu | menu | desktop |
+
+19/19 `tel:` links keep `data-call-cta` at every width; body CTAs remain
+exactly `{"Call to order", "Call for pricing"}`.
+
+### Dead code removed
+
+`TiltCard.tsx` and `Parallax.tsx` had zero references after the hero rebuild
+and the move away from 3D card tilt. Deleted rather than shipped.
+
+### Repository and deployment
+
+Pushed to `https://github.com/PavithraEbbali/sparklight`, `main` at `a1c4d9f`,
+51 files. `.next`, `node_modules` and `.claude/` are ignored.
+
+Vercel needs no configuration: framework auto-detects, **no environment
+variables**, defaults are correct. Verified against a real production build
+rather than the dev server, since the two differ on image optimization:
+
+```
+clean next build       -> / prerendered as static
+next start, GET /      -> HTTP 200, 316 KB, 98 ms
+/_next/image (hero)    -> HTTP 200, image/jpeg, 35 KB
+```
+
+CTAs, the disclosure and `og:image` are all present in the server-rendered
+HTML, so the page is complete before any JavaScript runs.
+
+### Still outstanding
+
+The one thing unchanged since 0.3.0: **no scroll-triggered behaviour has been
+observed running.** The Browser pane is a hidden page — `document.hidden` is
+true, `requestAnimationFrame` never fires, IntersectionObserver delivers
+nothing — so wipes, staggers, text reveals, the hero cascade and lazy image
+loading are all verified structurally and none has been watched. Everything
+in this log rests on DOM geometry, computed styles and HTTP responses. A
+single scroll in a normal browser window is the outstanding check.
+
+---
+
 ## [0.4.4] — Fix: the card photograph was showing 7% of the frame
 
 The 0.4.3 card looked wrong on sight — a blurred slab of wall with the phone
